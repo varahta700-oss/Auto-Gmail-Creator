@@ -6,7 +6,7 @@ from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import WebDriverException
+from selenium.common.exceptions import TimeoutException, WebDriverException
 import time
 import random
 import datetime
@@ -24,6 +24,14 @@ BASE_DIR = Path(__file__).resolve().parent
 AUTO_GENERATE_USERINFO = os.getenv("AUTO_GENERATE_USERINFO", "1").lower() in {"1", "true", "yes"}
 AUTO_GENERATE_NUMBER = int(os.getenv("AUTO_GENERATE_NUMBER", "10"))
 WAIT = float(os.getenv("WAIT_SECONDS", "4"))
+PAGE_LOAD_TIMEOUT = float(os.getenv("PAGE_LOAD_TIMEOUT", "30"))
+NAVIGATION_RETRIES = int(os.getenv("NAVIGATION_RETRIES", "2"))
+_DEFAULT_PAGE_LOAD_STRATEGY = "none" if (
+    os.getenv("TERMUX_VERSION") or "com.termux" in os.getenv("PREFIX", "")
+) else "eager"
+PAGE_LOAD_STRATEGY = os.getenv("PAGE_LOAD_STRATEGY", _DEFAULT_PAGE_LOAD_STRATEGY).strip().lower()
+if PAGE_LOAD_STRATEGY not in {"normal", "eager", "none"}:
+    PAGE_LOAD_STRATEGY = "eager"
 REQUEST_MAX_TRY = int(os.getenv("REQUEST_MAX_TRY", "10"))
 USER_CSV = Path(os.getenv("USER_CSV", str(BASE_DIR / "user.csv")))
 USERNAME_BASE = os.getenv("USERNAME_BASE", "").strip()
@@ -196,6 +204,33 @@ def _find_chromedriver():
     return None
 
 
+def navigate(driver, url, retries=None):
+    """Navigate without waiting forever for third-party resources.
+
+    Chromium can keep a page loading because of analytics, blocked resources,
+    or a slow mobile connection. Termux defaults to Selenium's `none` strategy,
+    while desktop systems default to `eager`; explicit element waits below still
+    control when the workflow proceeds.
+    """
+    attempts = NAVIGATION_RETRIES if retries is None else max(0, int(retries))
+    last_error = None
+    for attempt in range(attempts + 1):
+        try:
+            print(f"################ Navigate ({attempt + 1}/{attempts + 1}): {url} ################")
+            driver.get(url)
+            return
+        except TimeoutException as error:
+            last_error = error
+            print(f"Navigation timed out after {PAGE_LOAD_TIMEOUT:g}s: {url}")
+            try:
+                driver.execute_script("window.stop();")
+            except WebDriverException:
+                pass
+            if attempt < attempts:
+                time.sleep(1)
+    raise RuntimeError(f"Unable to load {url} after {attempts + 1} attempt(s): {last_error}") from last_error
+
+
 def setDriver():
     """Start Chromium using a driver supplied by the user or on PATH.
 
@@ -204,6 +239,7 @@ def setDriver():
     used here.
     """
     options = ChromeOptions()
+    options.page_load_strategy = PAGE_LOAD_STRATEGY
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-gpu")
@@ -223,17 +259,20 @@ def setDriver():
 
     driver_path = _find_chromedriver()
     if driver_path:
-        return webdriver.Chrome(service=Service(driver_path), options=options)
-
-    if _is_termux():
+        driver = webdriver.Chrome(service=Service(driver_path), options=options)
+    elif _is_termux():
         raise RuntimeError(
             "No executable chromedriver was found. On Termux, install an "
             "Android/ARM64-compatible driver and set CHROMEDRIVER=/path/to/chromedriver "
             "or put it on PATH; webdriver-manager cannot supply this binary."
         )
+    else:
+        # On regular desktop Linux, Selenium Manager may resolve a matching driver.
+        driver = webdriver.Chrome(options=options)
 
-    # On regular desktop Linux, Selenium Manager may resolve a matching driver.
-    return webdriver.Chrome(options=options)
+    driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
+    driver.set_script_timeout(PAGE_LOAD_TIMEOUT)
+    return driver
 
 def main():
     user_number = 0
@@ -310,12 +349,12 @@ def main():
             if random_int ==  1:
 
                 print('################ Creat a google account article ################')
-                driver.get('https://support.google.com/accounts/answer/27441?hl=en')
+                navigate(driver, 'https://support.google.com/accounts/answer/27441?hl=en')
                 WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH,'//*[@id="hcfe-content"]/section/div/div[1]/article/section/div/div[1]/div/div[2]/a[1]'))).click()
                 time.sleep(WAIT)
             elif random_int == 2:
                 print('################ Go to account page ################')
-                driver.get("https://accounts.google.com")
+                navigate(driver, "https://accounts.google.com")
 
                 time.sleep(WAIT)
 
@@ -335,11 +374,11 @@ def main():
                         pass
 
             elif random_int == 3:
-                driver.get('https://accounts.google.com/signup/v2/webcreateaccount?flowName=GlifWebSignIn&flowEntry=SignUp')
+                navigate(driver, 'https://accounts.google.com/signup/v2/webcreateaccount?flowName=GlifWebSignIn&flowEntry=SignUp')
                 time.sleep(WAIT)
 
             elif random_int == 4:
-                driver.get('https://support.google.com/mail/answer/56256?hl=en')
+                navigate(driver, 'https://support.google.com/mail/answer/56256?hl=en')
                 WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH,'//*[@id="hcfe-content"]/section/div/div[1]/article/section/div/div[1]/div/p[1]/a'))).click()
                 time.sleep(WAIT)
 

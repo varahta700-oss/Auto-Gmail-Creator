@@ -34,7 +34,15 @@ For a configured Termux:X11 display, set `HEADLESS=0` and export `DISPLAY` as re
 
 ## Configuration
 
-The application reads runtime values from environment variables. No API key or proxy credential is stored in the repository. Supported settings include `AUTO_GENERATE_USERINFO`, `AUTO_GENERATE_NUMBER`, `WAIT_SECONDS`, `REQUEST_MAX_TRY`, `USER_CSV`, `USERNAME_BASE`, `USERNAME_SUFFIX_LENGTH`, `CHROMEDRIVER`, `CHROME_BINARY`, and `HEADLESS`.
+The application reads runtime values from environment variables. No API key or proxy credential is stored in the repository. Supported settings include `AUTO_GENERATE_USERINFO`, `AUTO_GENERATE_NUMBER`, `WAIT_SECONDS`, `PAGE_LOAD_TIMEOUT`, `NAVIGATION_RETRIES`, `PAGE_LOAD_STRATEGY`, `REQUEST_MAX_TRY`, `USER_CSV`, `USERNAME_BASE`, `USERNAME_SUFFIX_LENGTH`, `CHROMEDRIVER`, `CHROME_BINARY`, and `HEADLESS`.
+
+For a slow or unstable mobile connection, Termux now defaults to Selenium's `none` page-load strategy, while desktop systems default to `eager`. Both use a 30-second page-load timeout, stop waiting for nonessential subresources, and retry timed-out navigations twice. You can tune these values locally:
+
+```bash
+export PAGE_LOAD_TIMEOUT=45
+export NAVIGATION_RETRIES=3
+export PAGE_LOAD_STRATEGY=eager
+```
 
 When automatic user information is enabled, the program asks once:
 
@@ -61,7 +69,7 @@ Do not commit secrets, private proxy credentials, or generated account data. The
 
 ## What was fixed
 
-The application now imports standard Selenium instead of Selenium Wire, so the `pkg_resources` import failure is avoided. It no longer calls `webdriver-manager`, which was attempting to download an unavailable `None-arm64` driver on Termux. It first uses `CHROMEDRIVER` or `chromedriver` on `PATH`, uses Selenium Manager only as a desktop fallback, and reports a clear error when Termux has no compatible driver.
+The application now imports standard Selenium instead of Selenium Wire, so the `pkg_resources` import failure is avoided. It no longer calls `webdriver-manager`, which was attempting to download an unavailable `None-arm64` driver on Termux. It first uses `CHROMEDRIVER` or `chromedriver` on `PATH`, uses Selenium Manager only as a desktop fallback, and reports a clear error when Termux has no compatible driver. Browser navigation now uses an explicit page-load timeout, Selenium's modern `eager` strategy, retry logging, and `window.stop()` after a timeout so a slow third-party resource cannot block the whole run for two minutes.
 
 The patch also fixes the uninitialized `driver` cleanup error, the unconditional `user_info_file.close()` call, case-sensitive `User.csv` path handling, relative data paths, unbounded SMS-code polling, missing HTTP timeouts, and the committed SMS/proxy credentials found in the original source.
 

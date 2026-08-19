@@ -3,7 +3,9 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+from selenium.common.exceptions import TimeoutException
 
 import app
 
@@ -37,12 +39,23 @@ class TermuxCompatibilityTests(unittest.TestCase):
                 "DISPLAY": "",
                 "HEADLESS": "",
             }
-            with patch.dict(os.environ, env, clear=False), patch("app.webdriver.Chrome", return_value="driver") as chrome:
-                self.assertEqual(app.setDriver(), "driver")
+            mock_driver = MagicMock()
+            with patch.dict(os.environ, env, clear=False), patch("app.webdriver.Chrome", return_value=mock_driver) as chrome:
+                self.assertIs(app.setDriver(), mock_driver)
                 options = chrome.call_args.kwargs["options"]
                 service = chrome.call_args.kwargs["service"]
                 self.assertEqual(service.path, str(driver))
                 self.assertIn("--headless", options.arguments)
+                self.assertEqual(options.page_load_strategy, app.PAGE_LOAD_STRATEGY)
+                mock_driver.set_page_load_timeout.assert_called_once_with(app.PAGE_LOAD_TIMEOUT)
+                mock_driver.set_script_timeout.assert_called_once_with(app.PAGE_LOAD_TIMEOUT)
+
+    def test_navigation_retries_after_timeout(self):
+        driver = MagicMock()
+        driver.get.side_effect = [TimeoutException("slow page"), None]
+        app.navigate(driver, "https://example.invalid", retries=1)
+        self.assertEqual(driver.get.call_count, 2)
+        driver.execute_script.assert_called_once_with("window.stop();")
 
     def test_termux_without_driver_has_actionable_error(self):
         env = {
