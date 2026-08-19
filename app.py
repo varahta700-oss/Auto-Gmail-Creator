@@ -15,6 +15,7 @@ import csv
 import string
 import os
 import shutil
+import sys
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -43,6 +44,78 @@ sms_activate_url = "https://sms-activate.org/stubs/handler_api.php"
 # Referer randomization, proxy rotation, and stealth settings were removed.
 # They are unreliable on Termux and can be used to evade anti-abuse controls.
 INCLUDE_REFER_URL = False
+RESULT_LOG = BASE_DIR / "registration_results.csv"
+USE_COLOR = sys.stdout.isatty() and not os.getenv("NO_COLOR")
+
+
+def _color(code, text):
+    return f"\033[{code}m{text}\033[0m" if USE_COLOR else text
+
+
+def ui_header():
+    print()
+    print(_color("1;36", "╔══════════════════════════════════════════════════════════════╗"))
+    print(_color("1;36", "║                 AUTO GMAIL CREATOR                          ║"))
+    print(_color("1;36", "║              Termux registration dashboard                   ║"))
+    print(_color("1;36", "╚══════════════════════════════════════════════════════════════╝"))
+    print(f"  Python: {sys.version.split()[0]}   Platform: {'Termux' if _is_termux() else 'Desktop'}")
+    print(f"  Browser: {_find_chrome_binary() or 'not found'}")
+    print(f"  Driver:  {_find_chromedriver() or 'not found'}")
+    print(f"  Headless: {os.getenv('HEADLESS', 'auto')}   Page strategy: {PAGE_LOAD_STRATEGY}")
+    print()
+
+
+def ui_step(label, detail=""):
+    suffix = f" — {detail}" if detail else ""
+    print(_color("1;34", f"[STEP] {label}") + suffix)
+
+
+def ui_info(label, detail=""):
+    suffix = f" — {detail}" if detail else ""
+    print(_color("36", f"[INFO] {label}") + suffix)
+
+
+def ui_success(label, detail=""):
+    suffix = f" — {detail}" if detail else ""
+    print(_color("1;32", f"[ OK ] {label}") + suffix)
+
+
+def ui_error(label, detail=""):
+    suffix = f" — {detail}" if detail else ""
+    print(_color("1;31", f"[FAIL] {label}") + suffix)
+
+
+def record_result(results, attempt, username, status, details):
+    details = " ".join(str(details).split())[:240]
+    item = {
+        "attempt": attempt,
+        "username": username or "(not generated)",
+        "status": status,
+        "details": details,
+        "time": datetime.datetime.now().isoformat(timespec="seconds"),
+    }
+    results.append(item)
+    file_exists = RESULT_LOG.exists()
+    with open(RESULT_LOG, "a", newline="", encoding="utf-8") as result_file:
+        writer = csv.DictWriter(result_file, fieldnames=item.keys())
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(item)
+
+
+def print_summary(results, started_at):
+    completed = sum(item["status"] == "completed" for item in results)
+    failed = sum(item["status"] == "failed" for item in results)
+    elapsed = datetime.datetime.now() - started_at
+    print()
+    print(_color("1;36", "════════════════ RUN SUMMARY ════════════════"))
+    print(f"  Attempts: {len(results)}    Completed: {completed}    Failed: {failed}")
+    print(f"  Elapsed:  {str(elapsed).split('.')[0]}")
+    print(f"  Results:  {RESULT_LOG}")
+    if failed:
+        print(_color("33", "  Review registration_results.csv for each failure reason."))
+    print(_color("1;36", "════════════════════════════════════════════"))
+
 
 SELECTORS = {
     "create_account":[
@@ -294,33 +367,38 @@ def setDriver():
 def main():
     user_number = 0
     i = 0
+    results = []
+    started_at = datetime.datetime.now()
+    ui_header()
+    ui_info("Configuration", f"planned attempts={AUTO_GENERATE_NUMBER if AUTO_GENERATE_USERINFO else 'from CSV'}")
+    ui_info("Result logging", str(RESULT_LOG))
 
     if AUTO_GENERATE_USERINFO:
         user_number = AUTO_GENERATE_NUMBER
         username_base = prompt_username_base()
-        print('################ Open First_Name_DB.csv ################')
+        ui_step("Loading first-name database")
         try:
             with open(BASE_DIR / "data" / "First_Name_DB.csv", newline="", encoding="utf-8") as first_name_file:
                 first_names = list(csv.reader(first_name_file))
         except:
-            print('################ Please check if First_Name_DB.csv exists ################')
+            ui_error("First-name database unavailable", BASE_DIR / "data" / "First_Name_DB.csv")
             quit()
 
-        print('################ Open Last_Name_DB.csv ################')
+        ui_step("Loading last-name database")
         try:
             with open(BASE_DIR / "data" / "Last_Name_DB.csv", newline="", encoding="utf-8") as last_name_file:
                 last_names = list(csv.reader(last_name_file))
         except:
-            print('################ Please check if Last_Name_DB.csv exists ################')
+            ui_error("Last-name database unavailable", BASE_DIR / "data" / "Last_Name_DB.csv")
             quit()
     else:
-        print('################ Open User.csv ################')
+        ui_step("Loading user CSV", str(USER_CSV))
         try:
             with open(USER_CSV, newline="", encoding="utf-8") as user_info_file:
                 user_infos = list(csv.reader(user_info_file))
             user_number = len(user_infos)
         except:
-            print('################ Please check if User.csv exists ################')
+            ui_error("User CSV unavailable", USER_CSV)
             quit()
 
     while True:
@@ -332,14 +410,15 @@ def main():
                 break
 
             i = i + 1
-            print('################ User:', i,' ################')
+            user_name = ""
+            ui_step("Starting registration attempt", f"{i}/{user_number}")
             if AUTO_GENERATE_USERINFO:
                 first_name = random.choice(first_names)[0]
                 last_name = random.choice(last_names)[0]
                 password = generatePassword()
                 birthday = str(random.randint(1,12)) + "/" + str(random.randint(1,28)) + "/" +  str(random.randint(1980,1999))
                 user_name_manual = ""
-                print(first_name + "\t" + last_name + "\t" + password + '\t' + birthday)
+                ui_info("Profile prepared", f"{first_name} {last_name} — birthday {birthday}")
             else:
                 row = user_infos[i]
                 if "Firstname" == row[0]:
@@ -349,14 +428,15 @@ def main():
                 last_name = row[1]
                 password = row[2]
                 birthday = row[3]
-                print(first_name + "\t" + last_name + "\t" + password + '\t' + birthday)
+                ui_info("Profile prepared", f"{first_name} {last_name} — birthday {birthday}")
             try:
                 user_name_manual = row[4]
             except:
                 user_name_manual = ""
 
-            print('################ Initialize Chrome Driver ################')
+            ui_step("Starting Chromium", f"attempt {i}/{user_number}")
             driver = setDriver()
+            ui_success("Browser session ready")
 
             if INCLUDE_REFER_URL:
                 raise RuntimeError("Referer randomization is disabled for safe and predictable operation.")
@@ -365,24 +445,24 @@ def main():
             random_int = random.randint(1,4)
             if random_int ==  1:
 
-                print('################ Creat a google account article ################')
+                ui_step("Opening supported Google account help entry")
                 navigate(driver, 'https://support.google.com/accounts/answer/27441?hl=en')
                 WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH,'//*[@id="hcfe-content"]/section/div/div[1]/article/section/div/div[1]/div/div[2]/a[1]'))).click()
                 time.sleep(WAIT)
             elif random_int == 2:
-                print('################ Go to account page ################')
+                ui_step("Opening Google account page")
                 navigate(driver, "https://accounts.google.com")
 
                 time.sleep(WAIT)
 
-                print('################ Click "Create account" ################')
+                ui_step("Selecting account creation entry")
                 for selector in SELECTORS["create_account"]:
                     try:
                         WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, selector))).click()
                         break
                     except:
                         pass
-                print('################ Click "For my personal use" ################')
+                ui_step("Selecting personal-use option")
                 for selector in SELECTORS["for_my_personal_use"]:
                     try:
                         WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, selector))).click()
@@ -405,26 +485,26 @@ def main():
             while username_try < REQUEST_MAX_TRY:
                 time.sleep(WAIT*2)
 
-                print('################ 1st step of Creation Wizard. ################')
+                ui_step("Registration step 1", f"username attempt {username_try + 1}/{REQUEST_MAX_TRY}")
 
 
-                print("################ Generate User Try: ", username_try+1, " ################")
+                ui_info("Username attempt", f"{username_try + 1}/{REQUEST_MAX_TRY}")
                 # set the first name.
-                print('################ First Name ################')
+                ui_step("Entering first name")
                 first_name_tag = WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['first_name'])))
                 first_name_tag.clear()
                 time.sleep(WAIT/2)
-                print(first_name)
+                ui_info("First name prepared")
                 first_name_tag.send_keys(first_name)
 
                 # set the surname.
-                print('################ Last Name ################')
+                ui_step("Entering last name")
                 last_name_tag = WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['last_name'])))
                 last_name_tag.clear()
                 last_name_tag.send_keys(last_name)
 
                 #click next button
-                print('################ "Next" ################')
+                ui_step("Continuing to next registration step")
                 for selector in SELECTORS['next']:
                     try:
                         WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, selector))).click()
@@ -433,8 +513,8 @@ def main():
                         pass
                 time.sleep(WAIT*2)
 
-                print('################ 2st step of Creation Wizard. ################')
-                print('################ Birthday & Gender ################')
+                ui_step("Registration step 2")
+                ui_step("Entering birthday and gender")
                 # Date
                 WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['acc_day']))).send_keys(birthday.split('/')[1])
 
@@ -454,7 +534,7 @@ def main():
                 acc_gender.select_by_value('1')
 
                #click next button
-                print('################ Click "Next" Buton ################')
+                ui_step("Continuing registration")
                 for selector in SELECTORS['next']:
                     try:
                         WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, selector))).click()
@@ -464,7 +544,7 @@ def main():
                 time.sleep(WAIT*2)
 
                 # set username
-                print('################ Set User Name ################')
+                ui_step("Preparing username")
                 if user_name_manual == "":
                     default_base = username_base or (first_name + "." + last_name)
                     user_name = generate_username(default_base)
@@ -477,7 +557,7 @@ def main():
                 try:
                     user_name_tag = WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['username'])))
                     user_name_tag.clear()
-                    print(user_name)
+                    ui_info("Username prepared", user_name)
                     time.sleep(WAIT/2)
                     user_name_tag.send_keys(user_name)
                 # time.sleep(WAIT*1000)
@@ -485,7 +565,7 @@ def main():
                     pass
 
                 #click next button
-                print('################ Click "Next" Buton ################')
+                ui_step("Continuing registration")
                 for selector in SELECTORS['next']:
                     try:
                         WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, selector))).click()
@@ -493,30 +573,30 @@ def main():
                     except:
                         pass
                 time.sleep(WAIT*2)
-                print('################ Check Username Validation ################')
+                ui_step("Checking username response")
                 try:
                     WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['username_warning'])))
                     user_name_manual = ""
-                    print("Invalid")
+                    ui_info("Username unavailable", "generating another suffix")
                     username_try = username_try + 1
                     continue
                 except:
-                    print("Valid")
+                    ui_success("Username accepted", user_name)
                     pass
 
                 # set password
-                print('################ Set Password ################')
+                ui_step("Entering password")
                 passwd_tag =WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['password'])))
                 passwd_tag.clear()
                 passwd_tag.send_keys(password)
 
-                print('################ Set Confirm Password ################')
+                ui_step("Confirming password")
                 confirmwd_tag = WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['confirm_password'])))
                 confirmwd_tag.clear()
                 confirmwd_tag.send_keys(password)
 
                 #click next button
-                print('################ Click "Next" Buton ################')
+                ui_step("Continuing registration")
                 for selector in SELECTORS['next']:
                     try:
                         WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, selector))).click()
@@ -525,17 +605,17 @@ def main():
                         pass
                 time.sleep(WAIT*2)
 
-                print('################ Check Phone Verification ################')
+                ui_step("Checking whether verification is required")
                 without_verification = False
                 try:
                     WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['acc_day'])))
                     without_verification = True
-                    print("No. It doesn't require.")
+                    ui_success("Phone verification not requested")
                     break
                 except:
-                    print("Yes. It requires")
+                    ui_info("Phone verification requested")
                     pass
-                print('################ Input Phone Number ################')
+                ui_step("Preparing phone verification")
                 try:
                     phone_number_input = WebDriverWait(driver, WAIT*3).until(EC.presence_of_element_located((By.XPATH, SELECTORS['phone_number'])))
                     time.sleep(WAIT)
@@ -546,7 +626,7 @@ def main():
             activationId = ""
             count = 0
             if without_verification == False:
-                print('################ Get Phone Number from SMS_Activate ################')
+                ui_step("Requesting phone verification")
                 if not SMS_ACTIVATE_API_KEY:
                     raise RuntimeError(
                         "SMS verification is required, but SMS_ACTIVATE_API_KEY is not set. "
@@ -562,26 +642,26 @@ def main():
                     res = requests.get(url=sms_activate_url, params=phone_request_params, timeout=30)
                     res.raise_for_status()
                     data = res.text
-                    print(data)
+                    ui_info("Phone provider response received")
                     if "ACCESS_NUMBER" in data:
                         activationId = data.split(':')[1]
                         number = data.split(':')[2]
 
                         number = '+'+ number
-                        print(number)
+                        ui_success("Phone number received")
                         break
                     if "NO_BALANCE" in data:
                         raise RuntimeError("SMS provider balance is insufficient.")
                     count = count+1
                     time.sleep(WAIT)
                 if number == '':
-                    print("################ Cannot get phone number: ", REQUEST_MAX_TRY, " times retrial. ################")
+                    ui_error("Phone number unavailable", f"after {REQUEST_MAX_TRY} attempts")
                     raise RuntimeError("Go to next account.")
 
                 phone_number_input.send_keys(number)
 
                 #click next button
-                print('################ Click "Next" Buton ################')
+                ui_step("Continuing registration")
                 for selector in SELECTORS['next']:
                     try:
                         WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, selector))).click()
@@ -589,7 +669,7 @@ def main():
                     except:
                         pass
 
-                print('################ Get SMS Code from SMS_Activate ################')
+                ui_step("Waiting for verification code")
                 time.sleep(WAIT)
 
                 count_status = 0
@@ -600,11 +680,11 @@ def main():
                         "action": "getStatus",
                         "id": activationId,
                     }
-                    print(status_param)
+                    ui_info("Checking verification code", f"attempt {count_status + 1}/{REQUEST_MAX_TRY}")
                     res_code = requests.get(url=sms_activate_url, params=status_param, timeout=30)
                     res_code.raise_for_status()
                     data_code = res_code.text
-                    print(data_code)
+                    ui_info("Verification provider response received")
                     if "STATUS_OK" in data_code:
                         code = data_code.split(':')[1]
                         break
@@ -616,11 +696,11 @@ def main():
                     print('Cannot receive code from sms_activate: ',REQUEST_MAX_TRY, " times retrial")
                     raise RuntimeError("Go to next account.")
 
-                print('################ Verify Phone Code ################')
+                ui_step("Entering verification code")
                 WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['code']))).send_keys(code)
 
                 #click next button
-                print('################ Click "Verify" Buton ################')
+                ui_step("Submitting verification code")
                 for selector in SELECTORS['next']:
                     try:
                         WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, selector))).click()
@@ -629,7 +709,7 @@ def main():
                         pass
 
             time.sleep(WAIT*2)
-            print('################ Clear Account Phone Number ################')
+            ui_step("Finishing registration details")
             # WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['acc_phone_number']))).clear()
 
             # print('################ Account Birthday ################')
@@ -658,7 +738,7 @@ def main():
                     break
                 except:
                     pass
-            print('################ Click "I agree" Buton ################')
+            ui_step("Submitting final registration step")
             time.sleep(WAIT)
 
             # Scroll to click "I agree"
@@ -671,16 +751,25 @@ def main():
                 except:
                     pass
             time.sleep(WAIT*3)
-            print('################ Save to Created.txt ################')
+            ui_step("Saving completed registration", user_name)
             with open(BASE_DIR / "Created.txt", "a", encoding="utf-8") as created_file:
                 created_file.write(user_name + "\t" + password + "\t" + birthday + "\t" + number + "\n")
+            record_result(results, i, user_name, "completed", "Saved to Created.txt")
+            ui_success("Registration completed", user_name)
 
             driver.quit()
             driver = None
         except Exception as e:
-            print(e)
+            details = f"{type(e).__name__}: {e}"
+            record_result(results, i, locals().get("user_name", ""), "failed", details)
+            ui_error("Registration failed", details)
             if driver is not None:
-                driver.quit()
+                try:
+                    driver.quit()
+                except WebDriverException as cleanup_error:
+                    ui_error("Browser cleanup failed", cleanup_error)
+
+    print_summary(results, started_at)
 
 if __name__ == "__main__":
     main()

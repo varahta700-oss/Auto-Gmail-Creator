@@ -95,6 +95,16 @@ class TermuxCompatibilityTests(unittest.TestCase):
         with patch("builtins.input", return_value=""):
             self.assertEqual(app.prompt_username_base(), "")
 
+    def test_result_logging_records_status_without_password(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = Path(temp_dir) / "registration_results.csv"
+            results = []
+            with patch.object(app, "RESULT_LOG", log_path):
+                app.record_result(results, 1, "misa.amanex7k2q", "failed", "TimeoutException: page did not load")
+            self.assertEqual(results[0]["status"], "failed")
+            self.assertNotIn("password", log_path.read_text(encoding="utf-8").lower())
+            self.assertIn("misa.amanex7k2q", log_path.read_text(encoding="utf-8"))
+
     def test_legacy_dependency_and_secret_patterns_are_gone(self):
         source = Path(__file__).with_name("app.py").read_text(encoding="utf-8")
         requirements = Path(__file__).with_name("requirements.txt").read_text(encoding="utf-8")
