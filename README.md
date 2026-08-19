@@ -34,7 +34,7 @@ For a configured Termux:X11 display, set `HEADLESS=0` and export `DISPLAY` as re
 
 ## Configuration
 
-The application reads runtime values from environment variables. No API key or proxy credential is stored in the repository. Supported settings include `AUTO_GENERATE_USERINFO`, `AUTO_GENERATE_NUMBER`, `WAIT_SECONDS`, `ELEMENT_WAIT_SECONDS`, `PAGE_LOAD_TIMEOUT`, `NAVIGATION_RETRIES`, `PAGE_LOAD_STRATEGY`, `REQUEST_MAX_TRY`, `USER_CSV`, `USERNAME_BASE`, `USERNAME_SUFFIX_LENGTH`, `CHROMEDRIVER`, `CHROME_BINARY`, and `HEADLESS`.
+The application reads runtime values from environment variables. No API key or proxy credential is stored in the repository. Supported settings include `AUTO_GENERATE_USERINFO`, `AUTO_GENERATE_NUMBER`, `WAIT_SECONDS`, `ELEMENT_WAIT_SECONDS`, `PAGE_LOAD_TIMEOUT`, `NAVIGATION_RETRIES`, `PAGE_LOAD_STRATEGY`, `HEADLESS_MODE`, `CHROME_EXTRA_ARGS`, `REQUEST_MAX_TRY`, `USER_CSV`, `USERNAME_BASE`, `USERNAME_SUFFIX_LENGTH`, `CHROMEDRIVER`, `CHROME_BINARY`, and `HEADLESS`.
 
 The Termux interface now shows a dashboard at startup, numbered registration steps, browser and driver detection, username-attempt progress, verification status, success/failure messages, elapsed time, and a final run summary. Each attempt is also written to `registration_results.csv`. A `completed` row means the program reached its final submission step and saved the local record to `Created.txt`; a `failed` row includes the exception type and a shortened diagnostic message. Passwords and SMS API responses are not printed in the dashboard. When a browser page fails, the app saves a screenshot and HTML snapshot under `diagnostics/` and reports the current URL and page title.
 
@@ -45,6 +45,7 @@ export PAGE_LOAD_TIMEOUT=45
 export ELEMENT_WAIT_SECONDS=30
 export NAVIGATION_RETRIES=3
 export PAGE_LOAD_STRATEGY=none
+export HEADLESS_MODE=new
 ```
 
 When automatic user information is enabled, the program asks once:
@@ -72,7 +73,7 @@ Do not commit secrets, private proxy credentials, or generated account data. The
 
 ## What was fixed
 
-The application now imports standard Selenium instead of Selenium Wire, so the `pkg_resources` import failure is avoided. It no longer calls `webdriver-manager`, which was attempting to download an unavailable `None-arm64` driver on Termux. It first uses `CHROMEDRIVER` or `chromedriver` on `PATH`, detects `chromium`, `chromium-browser`, or `google-chrome`, uses Selenium Manager only as a desktop fallback, and reports a clear error when Termux has no compatible browser or driver. Browser navigation now uses an explicit page-load timeout, Selenium's modern page-load strategy, retry logging, and `window.stop()` after a timeout so a slow third-party resource cannot block the whole run for two minutes.
+The application now imports standard Selenium instead of Selenium Wire, so the `pkg_resources` import failure is avoided. It no longer calls `webdriver-manager`, which was attempting to download an unavailable `None-arm64` driver on Termux. It first uses `CHROMEDRIVER` or `chromedriver` on `PATH`, detects `chromium`, `chromium-browser`, or `google-chrome`, uses Selenium Manager only as a desktop fallback, and reports a clear error when Termux has no compatible browser or driver. Browser startup uses Chromium's modern unified `--headless=new` mode by default, with optional `CHROME_EXTRA_ARGS`. Navigation uses an explicit page-load timeout, retries dead sessions with a fresh renderer, rejects `about:blank` as a failed navigation, and saves diagnostics when the renderer does not respond.
 
 The patch also fixes the uninitialized `driver` cleanup error, the unconditional `user_info_file.close()` call, case-sensitive `User.csv` path handling, relative data paths, unbounded SMS-code polling, missing HTTP timeouts, and the committed SMS/proxy credentials found in the original source.
 

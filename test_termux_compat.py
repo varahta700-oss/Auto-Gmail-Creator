@@ -55,17 +55,29 @@ class TermuxCompatibilityTests(unittest.TestCase):
                 options = chrome.call_args.kwargs["options"]
                 service = chrome.call_args.kwargs["service"]
                 self.assertEqual(service.path, str(driver))
-                self.assertIn("--headless", options.arguments)
+                self.assertTrue(any(argument.startswith("--headless") for argument in options.arguments))
+                self.assertIn("--headless=new", options.arguments)
                 self.assertEqual(options.page_load_strategy, app.PAGE_LOAD_STRATEGY)
                 mock_driver.set_page_load_timeout.assert_called_once_with(app.PAGE_LOAD_TIMEOUT)
                 mock_driver.set_script_timeout.assert_called_once_with(app.PAGE_LOAD_TIMEOUT)
 
-    def test_navigation_retries_after_timeout(self):
+    def test_navigation_retries_after_timeout_with_fresh_session(self):
         driver = MagicMock()
+        driver.current_url = "https://example.invalid/"
         driver.get.side_effect = [TimeoutException("slow page"), None]
-        app.navigate(driver, "https://example.invalid", retries=1)
+        with patch("app.setDriver", return_value=driver) as restart:
+            returned = app.navigate(driver, "https://example.invalid", retries=1)
+        self.assertIs(returned, driver)
         self.assertEqual(driver.get.call_count, 2)
         driver.execute_script.assert_called_once_with("window.stop();")
+        restart.assert_called_once_with()
+
+    def test_navigation_rejects_about_blank(self):
+        driver = MagicMock()
+        driver.current_url = "about:blank"
+        with patch("app.setDriver", return_value=driver):
+            with self.assertRaisesRegex(RuntimeError, "about:blank"):
+                app.navigate(driver, "https://example.invalid", retries=0)
 
     def test_termux_without_driver_has_actionable_error(self):
         env = {

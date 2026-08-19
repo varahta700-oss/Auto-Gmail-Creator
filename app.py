@@ -16,6 +16,7 @@ import string
 import os
 import shutil
 import sys
+import shlex
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -34,6 +35,10 @@ _DEFAULT_PAGE_LOAD_STRATEGY = "none" if (
 PAGE_LOAD_STRATEGY = os.getenv("PAGE_LOAD_STRATEGY", _DEFAULT_PAGE_LOAD_STRATEGY).strip().lower()
 if PAGE_LOAD_STRATEGY not in {"normal", "eager", "none"}:
     PAGE_LOAD_STRATEGY = "eager"
+HEADLESS_MODE = os.getenv("HEADLESS_MODE", "new").strip().lower()
+if HEADLESS_MODE not in {"new", "legacy"}:
+    HEADLESS_MODE = "new"
+CHROME_EXTRA_ARGS = os.getenv("CHROME_EXTRA_ARGS", "").strip()
 REQUEST_MAX_TRY = int(os.getenv("REQUEST_MAX_TRY", "10"))
 USER_CSV = Path(os.getenv("USER_CSV", str(BASE_DIR / "user.csv")))
 USERNAME_BASE = os.getenv("USERNAME_BASE", "").strip()
@@ -352,16 +357,34 @@ def navigate(driver, url, retries=None):
         try:
             ui_step("Navigating", f"{attempt + 1}/{attempts + 1} — {url}")
             driver.get(url)
-            ui_success("Navigation returned", getattr(driver, "current_url", url))
-            return
-        except TimeoutException as error:
+            time.sleep(1)
+            current_url = getattr(driver, "current_url", "")
+            if not current_url or current_url == "about:blank":
+                raise WebDriverException(
+                    "Chromium renderer returned about:blank; the browser session is not usable"
+                )
+            ui_success("Navigation returned", current_url)
+            return driver
+        except (TimeoutException, WebDriverException) as error:
             last_error = error
-            ui_error("Navigation timed out", f"after {PAGE_LOAD_TIMEOUT:g}s — {url}")
+            label = "Navigation timed out" if isinstance(error, TimeoutException) else "Browser navigation failed"
+            ui_error(label, f"{type(error).__name__}: {error or 'renderer did not respond'}")
             try:
                 driver.execute_script("window.stop();")
             except WebDriverException:
                 pass
             if attempt < attempts:
+                ui_info("Restarting Chromium session", "retrying with a fresh renderer")
+                try:
+                    driver.quit()
+                except WebDriverException:
+                    pass
+                try:
+                    driver = setDriver()
+                except Exception as restart_error:
+                    last_error = restart_error
+                    ui_error("Could not restart Chromium", restart_error)
+                    break
                 time.sleep(1)
     raise RuntimeError(f"Unable to load {url} after {attempts + 1} attempt(s): {last_error}") from last_error
 
@@ -378,7 +401,13 @@ def setDriver():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-gpu")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--disable-sync")
     options.add_argument("--window-size=1280,900")
+    if CHROME_EXTRA_ARGS:
+        for extra_arg in shlex.split(CHROME_EXTRA_ARGS):
+            options.add_argument(extra_arg)
 
     chrome_binary = _find_chrome_binary()
     if chrome_binary:
@@ -396,7 +425,7 @@ def setDriver():
     if not headless and _is_termux() and not os.getenv("DISPLAY"):
         headless = True
     if headless:
-        options.add_argument("--headless")
+        options.add_argument("--headless" if HEADLESS_MODE == "legacy" else "--headless=new")
 
     driver_path = _find_chromedriver()
     if driver_path:
@@ -497,12 +526,12 @@ def main():
             if random_int ==  1:
 
                 ui_step("Opening supported Google account help entry")
-                navigate(driver, 'https://support.google.com/accounts/answer/27441?hl=en')
+                driver = navigate(driver, 'https://support.google.com/accounts/answer/27441?hl=en')
                 click_first(driver, ['//*[@id="hcfe-content"]/section/div/div[1]/article/section/div/div[1]/div/div[2]/a[1]'], "account help signup link")
                 time.sleep(WAIT)
             elif random_int == 2:
                 ui_step("Opening Google account page")
-                navigate(driver, "https://accounts.google.com")
+                driver = navigate(driver, "https://accounts.google.com")
 
                 time.sleep(WAIT)
 
@@ -512,11 +541,11 @@ def main():
                 click_first(driver, SELECTORS["for_my_personal_use"], "personal-use option")
 
             elif random_int == 3:
-                navigate(driver, 'https://accounts.google.com/signup/v2/webcreateaccount?flowName=GlifWebSignIn&flowEntry=SignUp')
+                driver = navigate(driver, 'https://accounts.google.com/signup/v2/webcreateaccount?flowName=GlifWebSignIn&flowEntry=SignUp')
                 time.sleep(WAIT)
 
             elif random_int == 4:
-                navigate(driver, 'https://support.google.com/mail/answer/56256?hl=en')
+                driver = navigate(driver, 'https://support.google.com/mail/answer/56256?hl=en')
                 click_first(driver, ['//*[@id="hcfe-content"]/section/div/div[1]/article/section/div/div[1]/div/p[1]/a'], "Gmail help signup link")
                 time.sleep(WAIT)
 
