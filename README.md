@@ -34,16 +34,17 @@ For a configured Termux:X11 display, set `HEADLESS=0` and export `DISPLAY` as re
 
 ## Configuration
 
-The application reads runtime values from environment variables. No API key or proxy credential is stored in the repository. Supported settings include `AUTO_GENERATE_USERINFO`, `AUTO_GENERATE_NUMBER`, `WAIT_SECONDS`, `PAGE_LOAD_TIMEOUT`, `NAVIGATION_RETRIES`, `PAGE_LOAD_STRATEGY`, `REQUEST_MAX_TRY`, `USER_CSV`, `USERNAME_BASE`, `USERNAME_SUFFIX_LENGTH`, `CHROMEDRIVER`, `CHROME_BINARY`, and `HEADLESS`.
+The application reads runtime values from environment variables. No API key or proxy credential is stored in the repository. Supported settings include `AUTO_GENERATE_USERINFO`, `AUTO_GENERATE_NUMBER`, `WAIT_SECONDS`, `ELEMENT_WAIT_SECONDS`, `PAGE_LOAD_TIMEOUT`, `NAVIGATION_RETRIES`, `PAGE_LOAD_STRATEGY`, `REQUEST_MAX_TRY`, `USER_CSV`, `USERNAME_BASE`, `USERNAME_SUFFIX_LENGTH`, `CHROMEDRIVER`, `CHROME_BINARY`, and `HEADLESS`.
 
-The Termux interface now shows a dashboard at startup, numbered registration steps, browser and driver detection, username-attempt progress, verification status, success/failure messages, elapsed time, and a final run summary. Each attempt is also written to `registration_results.csv`. A `completed` row means the program reached its final submission step and saved the local record to `Created.txt`; a `failed` row includes the exception type and a shortened diagnostic message. Passwords and SMS API responses are not printed in the dashboard.
+The Termux interface now shows a dashboard at startup, numbered registration steps, browser and driver detection, username-attempt progress, verification status, success/failure messages, elapsed time, and a final run summary. Each attempt is also written to `registration_results.csv`. A `completed` row means the program reached its final submission step and saved the local record to `Created.txt`; a `failed` row includes the exception type and a shortened diagnostic message. Passwords and SMS API responses are not printed in the dashboard. When a browser page fails, the app saves a screenshot and HTML snapshot under `diagnostics/` and reports the current URL and page title.
 
-For a slow or unstable mobile connection, Termux now defaults to Selenium's `none` page-load strategy, while desktop systems default to `eager`. Both use a 30-second page-load timeout, stop waiting for nonessential subresources, and retry timed-out navigations twice. You can tune these values locally:
+For a slow or unstable mobile connection, Termux now defaults to Selenium's `none` page-load strategy, while desktop systems default to `eager`. Both use a 30-second page-load timeout, stop waiting for nonessential subresources, and retry timed-out navigations twice. Element waits now default to 20 seconds so a page that is still rendering is not rejected after the short polling delay. You can tune these values locally:
 
 ```bash
 export PAGE_LOAD_TIMEOUT=45
+export ELEMENT_WAIT_SECONDS=30
 export NAVIGATION_RETRIES=3
-export PAGE_LOAD_STRATEGY=eager
+export PAGE_LOAD_STRATEGY=none
 ```
 
 When automatic user information is enabled, the program asks once:

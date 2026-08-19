@@ -3,4 +3,5 @@ __pycache__/
 *.py[cod]
 Created.txt
 registration_results.csv
+diagnostics/
 .env

@@ -95,6 +95,22 @@ class TermuxCompatibilityTests(unittest.TestCase):
         with patch("builtins.input", return_value=""):
             self.assertEqual(app.prompt_username_base(), "")
 
+    def test_failure_diagnostics_create_local_artifacts(self):
+        class FakeDriver:
+            current_url = "https://accounts.google.com/signup"
+            title = "Signup"
+            page_source = "<html><body>example</body></html>"
+
+            def save_screenshot(self, path):
+                Path(path).write_bytes(b"PNG")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(app, "DIAGNOSTICS_DIR", Path(temp_dir)):
+                prefix = app.save_failure_diagnostics(FakeDriver(), 1, "test failure")
+            self.assertIsNotNone(prefix)
+            self.assertTrue(Path(f"{prefix}.png").exists())
+            self.assertTrue(Path(f"{prefix}.html").exists())
+
     def test_result_logging_records_status_without_password(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             log_path = Path(temp_dir) / "registration_results.csv"

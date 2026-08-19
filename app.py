@@ -25,6 +25,7 @@ BASE_DIR = Path(__file__).resolve().parent
 AUTO_GENERATE_USERINFO = os.getenv("AUTO_GENERATE_USERINFO", "1").lower() in {"1", "true", "yes"}
 AUTO_GENERATE_NUMBER = int(os.getenv("AUTO_GENERATE_NUMBER", "10"))
 WAIT = float(os.getenv("WAIT_SECONDS", "4"))
+ELEMENT_WAIT = max(WAIT, float(os.getenv("ELEMENT_WAIT_SECONDS", "20")))
 PAGE_LOAD_TIMEOUT = float(os.getenv("PAGE_LOAD_TIMEOUT", "30"))
 NAVIGATION_RETRIES = int(os.getenv("NAVIGATION_RETRIES", "2"))
 _DEFAULT_PAGE_LOAD_STRATEGY = "none" if (
@@ -45,6 +46,7 @@ sms_activate_url = "https://sms-activate.org/stubs/handler_api.php"
 # They are unreliable on Termux and can be used to evade anti-abuse controls.
 INCLUDE_REFER_URL = False
 RESULT_LOG = BASE_DIR / "registration_results.csv"
+DIAGNOSTICS_DIR = BASE_DIR / "diagnostics"
 USE_COLOR = sys.stdout.isatty() and not os.getenv("NO_COLOR")
 
 
@@ -288,6 +290,54 @@ def _find_chrome_binary():
     return None
 
 
+def save_failure_diagnostics(driver, attempt, context):
+    """Save local browser state to explain a page-flow failure."""
+    if driver is None:
+        return None
+    try:
+        DIAGNOSTICS_DIR.mkdir(exist_ok=True)
+        prefix = DIAGNOSTICS_DIR / f"attempt_{attempt}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        screenshot_path = prefix.with_suffix(".png")
+        html_path = prefix.with_suffix(".html")
+        driver.save_screenshot(str(screenshot_path))
+        html_path.write_text(driver.page_source, encoding="utf-8")
+        current_url = driver.current_url
+        title = driver.title
+        page_text = driver.page_source.lower()
+        if "captcha" in page_text or "verify you are human" in page_text or "unusual traffic" in page_text:
+            ui_error("Google presented an anti-abuse or verification page", "manual review is required")
+        ui_info("Browser diagnostics saved", f"{context}; URL={current_url}; title={title}; files={prefix}.*")
+        return str(prefix)
+    except Exception as diagnostic_error:
+        ui_info("Browser diagnostics unavailable", diagnostic_error)
+        return None
+
+
+def wait_for_element(driver, locator, label, timeout=None):
+    """Wait for a page element and turn blank Selenium errors into context."""
+    try:
+        return WebDriverWait(driver, timeout or ELEMENT_WAIT).until(
+            EC.presence_of_element_located(locator)
+        )
+    except TimeoutException as error:
+        current_url = getattr(driver, "current_url", "unknown URL")
+        raise RuntimeError(f"Timed out waiting for {label} at {current_url}") from error
+
+
+def click_first(driver, locators, label, timeout=None):
+    """Click the first available locator and report when all known locators fail."""
+    failures = []
+    for locator in locators:
+        try:
+            element = wait_for_element(driver, (By.XPATH, locator), label, timeout)
+            element.click()
+            return element
+        except (RuntimeError, WebDriverException) as error:
+            failures.append(type(error).__name__)
+    current_url = getattr(driver, "current_url", "unknown URL")
+    raise RuntimeError(f"Could not find or click {label} at {current_url}; tried {len(locators)} locator(s)")
+
+
 def navigate(driver, url, retries=None):
     """Navigate without waiting forever for third-party resources.
 
@@ -300,12 +350,13 @@ def navigate(driver, url, retries=None):
     last_error = None
     for attempt in range(attempts + 1):
         try:
-            print(f"################ Navigate ({attempt + 1}/{attempts + 1}): {url} ################")
+            ui_step("Navigating", f"{attempt + 1}/{attempts + 1} — {url}")
             driver.get(url)
+            ui_success("Navigation returned", getattr(driver, "current_url", url))
             return
         except TimeoutException as error:
             last_error = error
-            print(f"Navigation timed out after {PAGE_LOAD_TIMEOUT:g}s: {url}")
+            ui_error("Navigation timed out", f"after {PAGE_LOAD_TIMEOUT:g}s — {url}")
             try:
                 driver.execute_script("window.stop();")
             except WebDriverException:
@@ -447,7 +498,7 @@ def main():
 
                 ui_step("Opening supported Google account help entry")
                 navigate(driver, 'https://support.google.com/accounts/answer/27441?hl=en')
-                WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH,'//*[@id="hcfe-content"]/section/div/div[1]/article/section/div/div[1]/div/div[2]/a[1]'))).click()
+                click_first(driver, ['//*[@id="hcfe-content"]/section/div/div[1]/article/section/div/div[1]/div/div[2]/a[1]'], "account help signup link")
                 time.sleep(WAIT)
             elif random_int == 2:
                 ui_step("Opening Google account page")
@@ -456,19 +507,9 @@ def main():
                 time.sleep(WAIT)
 
                 ui_step("Selecting account creation entry")
-                for selector in SELECTORS["create_account"]:
-                    try:
-                        WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, selector))).click()
-                        break
-                    except:
-                        pass
+                click_first(driver, SELECTORS["create_account"], "Create account button")
                 ui_step("Selecting personal-use option")
-                for selector in SELECTORS["for_my_personal_use"]:
-                    try:
-                        WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, selector))).click()
-                        break
-                    except:
-                        pass
+                click_first(driver, SELECTORS["for_my_personal_use"], "personal-use option")
 
             elif random_int == 3:
                 navigate(driver, 'https://accounts.google.com/signup/v2/webcreateaccount?flowName=GlifWebSignIn&flowEntry=SignUp')
@@ -476,7 +517,7 @@ def main():
 
             elif random_int == 4:
                 navigate(driver, 'https://support.google.com/mail/answer/56256?hl=en')
-                WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH,'//*[@id="hcfe-content"]/section/div/div[1]/article/section/div/div[1]/div/p[1]/a'))).click()
+                click_first(driver, ['//*[@id="hcfe-content"]/section/div/div[1]/article/section/div/div[1]/div/p[1]/a'], "Gmail help signup link")
                 time.sleep(WAIT)
 
             username_try = 0
@@ -491,7 +532,7 @@ def main():
                 ui_info("Username attempt", f"{username_try + 1}/{REQUEST_MAX_TRY}")
                 # set the first name.
                 ui_step("Entering first name")
-                first_name_tag = WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['first_name'])))
+                first_name_tag = wait_for_element(driver, (By.XPATH, SELECTORS['first_name']), "first-name field")
                 first_name_tag.clear()
                 time.sleep(WAIT/2)
                 ui_info("First name prepared")
@@ -499,7 +540,7 @@ def main():
 
                 # set the surname.
                 ui_step("Entering last name")
-                last_name_tag = WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['last_name'])))
+                last_name_tag = wait_for_element(driver, (By.XPATH, SELECTORS['last_name']), "last-name field")
                 last_name_tag.clear()
                 last_name_tag.send_keys(last_name)
 
@@ -762,6 +803,10 @@ def main():
         except Exception as e:
             details = f"{type(e).__name__}: {e}"
             record_result(results, i, locals().get("user_name", ""), "failed", details)
+            diagnostic_prefix = save_failure_diagnostics(driver, i, details)
+            if diagnostic_prefix:
+                details = f"{details}; diagnostics={diagnostic_prefix}"
+                results[-1]["details"] = details[:240]
             ui_error("Registration failed", details)
             if driver is not None:
                 try:
