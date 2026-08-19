@@ -19,7 +19,7 @@ The setup script creates `.venv`, installs the minimal Python dependencies, and 
 
 ```bash
 export CHROMEDRIVER=/absolute/path/to/chromedriver
-export CHROME_BINARY="$(command -v chromium)"
+export CHROME_BINARY="$(command -v chromium || command -v chromium-browser)"
 ```
 
 Because a normal Termux shell usually has no graphical display, the application automatically selects Chromium's compatible legacy headless mode when `TERMUX_VERSION` is present and `DISPLAY` is unset. To select it explicitly, use:
@@ -69,7 +69,7 @@ Do not commit secrets, private proxy credentials, or generated account data. The
 
 ## What was fixed
 
-The application now imports standard Selenium instead of Selenium Wire, so the `pkg_resources` import failure is avoided. It no longer calls `webdriver-manager`, which was attempting to download an unavailable `None-arm64` driver on Termux. It first uses `CHROMEDRIVER` or `chromedriver` on `PATH`, uses Selenium Manager only as a desktop fallback, and reports a clear error when Termux has no compatible driver. Browser navigation now uses an explicit page-load timeout, Selenium's modern `eager` strategy, retry logging, and `window.stop()` after a timeout so a slow third-party resource cannot block the whole run for two minutes.
+The application now imports standard Selenium instead of Selenium Wire, so the `pkg_resources` import failure is avoided. It no longer calls `webdriver-manager`, which was attempting to download an unavailable `None-arm64` driver on Termux. It first uses `CHROMEDRIVER` or `chromedriver` on `PATH`, detects `chromium`, `chromium-browser`, or `google-chrome`, uses Selenium Manager only as a desktop fallback, and reports a clear error when Termux has no compatible browser or driver. Browser navigation now uses an explicit page-load timeout, Selenium's modern page-load strategy, retry logging, and `window.stop()` after a timeout so a slow third-party resource cannot block the whole run for two minutes.
 
 The patch also fixes the uninitialized `driver` cleanup error, the unconditional `user_info_file.close()` call, case-sensitive `User.csv` path handling, relative data paths, unbounded SMS-code polling, missing HTTP timeouts, and the committed SMS/proxy credentials found in the original source.
 
@@ -78,8 +78,8 @@ The patch also fixes the uninitialized `driver` cleanup error, the unconditional
 Check the browser and driver independently:
 
 ```bash
-command -v chromium
-chromium --version
+CHROME_BIN="$(command -v chromium || command -v chromium-browser)"
+"$CHROME_BIN" --version
 command -v chromedriver
 chromedriver --version
 ```

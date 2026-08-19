@@ -24,5 +24,11 @@ if ! command -v chromedriver >/dev/null 2>&1; then
 fi
 
 chmod +x "$(command -v chromedriver)" 2>/dev/null || true
-printf '\nReady. Chromium: %s\nChromeDriver: %s\n' "$(command -v chromium || command -v chromium-browser)" "$(command -v chromedriver)"
-printf 'Run with: . .venv/bin/activate && python app.py\n'
+CHROME_BIN="$(command -v chromium || command -v chromium-browser || true)"
+if [ -z "$CHROME_BIN" ]; then
+    echo "Could not find chromium or chromium-browser after installation." >&2
+    exit 3
+fi
+
+printf '\nReady. Chromium: %s\nChromeDriver: %s\n' "$CHROME_BIN" "$(command -v chromedriver)"
+printf 'Run with: export CHROME_BINARY="%s"; export CHROMEDRIVER="%s"; . .venv/bin/activate && python app.py\n' "$CHROME_BIN" "$(command -v chromedriver)"

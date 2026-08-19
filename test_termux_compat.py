@@ -19,6 +19,16 @@ class TermuxCompatibilityTests(unittest.TestCase):
         with patch.dict(os.environ, {"TERMUX_VERSION": "0", "PREFIX": "/data/data/com.termux/files/usr"}, clear=False):
             self.assertTrue(app._is_termux())
 
+    def test_chromium_browser_name_is_supported(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            browser = Path(temp_dir) / "chromium-browser"
+            browser.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            browser.chmod(browser.stat().st_mode | stat.S_IXUSR)
+            with patch.dict(os.environ, {"CHROME_BINARY": ""}, clear=False), patch(
+                "app.shutil.which", side_effect=[None, str(browser), None]
+            ):
+                self.assertEqual(app._find_chrome_binary(), str(browser))
+
     def test_explicit_driver_path_is_found(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             driver = Path(temp_dir) / "chromedriver"

@@ -204,6 +204,17 @@ def _find_chromedriver():
     return None
 
 
+def _find_chrome_binary():
+    configured = os.getenv("CHROME_BINARY", "").strip()
+    if configured and os.path.isfile(configured) and os.access(configured, os.X_OK):
+        return configured
+    for command in ("chromium", "chromium-browser", "google-chrome"):
+        candidate = shutil.which(command)
+        if candidate:
+            return candidate
+    return None
+
+
 def navigate(driver, url, retries=None):
     """Navigate without waiting forever for third-party resources.
 
@@ -245,9 +256,15 @@ def setDriver():
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1280,900")
 
-    chrome_binary = os.getenv("CHROME_BINARY", "").strip() or shutil.which("chromium")
+    chrome_binary = _find_chrome_binary()
     if chrome_binary:
         options.binary_location = chrome_binary
+    elif _is_termux():
+        raise RuntimeError(
+            "No Chromium executable was found. Termux may name it "
+            "chromium-browser; install the Chromium package or set "
+            "CHROME_BINARY=/absolute/path/to/chromium-browser."
+        )
 
     # Termux normally has no DISPLAY. Its compatible mode is legacy
     # --headless; callers can set HEADLESS=0 under a configured X11 display.
