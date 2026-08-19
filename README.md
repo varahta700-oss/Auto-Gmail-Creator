@@ -34,7 +34,21 @@ For a configured Termux:X11 display, set `HEADLESS=0` and export `DISPLAY` as re
 
 ## Configuration
 
-The application reads runtime values from environment variables. No API key or proxy credential is stored in the repository. Supported settings include `AUTO_GENERATE_USERINFO`, `AUTO_GENERATE_NUMBER`, `WAIT_SECONDS`, `REQUEST_MAX_TRY`, `USER_CSV`, `CHROMEDRIVER`, `CHROME_BINARY`, and `HEADLESS`.
+The application reads runtime values from environment variables. No API key or proxy credential is stored in the repository. Supported settings include `AUTO_GENERATE_USERINFO`, `AUTO_GENERATE_NUMBER`, `WAIT_SECONDS`, `REQUEST_MAX_TRY`, `USER_CSV`, `USERNAME_BASE`, `USERNAME_SUFFIX_LENGTH`, `CHROMEDRIVER`, `CHROME_BINARY`, and `HEADLESS`.
+
+When automatic user information is enabled, the program asks once:
+
+```text
+What should the Gmail username start from? Example: misa.amane (leave blank to use first.last):
+```
+
+Entering `misa.amane` generates usernames in the form `misa.amanex7k2q`, with a new lowercase-alphanumeric suffix for each generated username. The default suffix length is five characters. Set `USERNAME_SUFFIX_LENGTH` to another value from 1 to 32 if needed. For non-interactive execution, set `USERNAME_BASE` before starting the program:
+
+```bash
+export USERNAME_BASE='misa.amane'
+export USERNAME_SUFFIX_LENGTH=5
+python app.py
+```
 
 If a verification provider is required by the site flow, provide a key only in your local shell environment, for example:
 

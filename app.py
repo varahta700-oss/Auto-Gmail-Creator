@@ -26,6 +26,8 @@ AUTO_GENERATE_NUMBER = int(os.getenv("AUTO_GENERATE_NUMBER", "10"))
 WAIT = float(os.getenv("WAIT_SECONDS", "4"))
 REQUEST_MAX_TRY = int(os.getenv("REQUEST_MAX_TRY", "10"))
 USER_CSV = Path(os.getenv("USER_CSV", str(BASE_DIR / "user.csv")))
+USERNAME_BASE = os.getenv("USERNAME_BASE", "").strip()
+USERNAME_SUFFIX_LENGTH = int(os.getenv("USERNAME_SUFFIX_LENGTH", "5"))
 SMS_ACTIVATE_API_KEY = os.getenv("SMS_ACTIVATE_API_KEY", "").strip()
 SMS_ACTIVATE_COUNTRY = os.getenv("SMS_ACTIVATE_COUNTRY", "175").strip()
 sms_activate_url = "https://sms-activate.org/stubs/handler_api.php"
@@ -68,6 +70,41 @@ def generatePassword():
     chars = string.ascii_uppercase + string.ascii_lowercase + string.digits + string.punctuation
     size = random.randint(8, 12)
     return ''.join(random.choice(chars) for x in range(size))
+
+
+def normalize_username_base(value):
+    """Return a Gmail-style local-part base using letters, digits, and dots."""
+    value = value.strip().lower().split("@", 1)[0]
+    value = "".join(char if char.isalnum() or char == "." else "." for char in value)
+    value = ".".join(part for part in value.split(".") if part)
+    return value.strip(".")
+
+
+def generate_username(base, suffix_length=None):
+    """Append a random lowercase-alphanumeric suffix to a normalized base."""
+    normalized = normalize_username_base(base)
+    if not normalized:
+        raise ValueError("Username base must contain at least one letter or digit.")
+    length = USERNAME_SUFFIX_LENGTH if suffix_length is None else int(suffix_length)
+    if length < 1 or length > 32:
+        raise ValueError("Username suffix length must be between 1 and 32.")
+    suffix_chars = string.ascii_lowercase + string.digits
+    suffix = "".join(random.choice(suffix_chars) for _ in range(length))
+    return normalized + suffix
+
+
+def prompt_username_base():
+    """Read a base once, allowing non-interactive use through USERNAME_BASE."""
+    if USERNAME_BASE:
+        return normalize_username_base(USERNAME_BASE)
+    try:
+        entered = input(
+            "What should the Gmail username start from? "
+            "Example: misa.amane (leave blank to use first.last): "
+        )
+    except EOFError:
+        entered = ""
+    return normalize_username_base(entered)
 
 def getRandomeUserAgent():
     UAGENTS = [
@@ -204,6 +241,7 @@ def main():
 
     if AUTO_GENERATE_USERINFO:
         user_number = AUTO_GENERATE_NUMBER
+        username_base = prompt_username_base()
         print('################ Open First_Name_DB.csv ################')
         try:
             with open(BASE_DIR / "data" / "First_Name_DB.csv", newline="", encoding="utf-8") as first_name_file:
@@ -372,11 +410,10 @@ def main():
                 # set username
                 print('################ Set User Name ################')
                 if user_name_manual == "":
-                    rand_5_digit_num = random.randint(10000,99999)
-                    user_name = first_name +"."+ last_name
-                    user_name = user_name.lower() + str(rand_5_digit_num)
+                    default_base = username_base or (first_name + "." + last_name)
+                    user_name = generate_username(default_base)
                 else:
-                    user_name = user_name_manual
+                    user_name = normalize_username_base(user_name_manual)
                 try:
                     WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['username_select']))).click()
                 except:

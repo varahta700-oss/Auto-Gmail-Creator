@@ -55,6 +55,23 @@ class TermuxCompatibilityTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Android/ARM64-compatible driver"):
                 app.setDriver()
 
+    def test_username_base_is_normalized(self):
+        self.assertEqual(app.normalize_username_base(" Misa Amane@example.com "), "misa.amane")
+        self.assertEqual(app.normalize_username_base("misa..amane!!!"), "misa.amane")
+
+    def test_username_has_requested_base_and_random_suffix(self):
+        first = app.generate_username("misa.amane", suffix_length=8)
+        second = app.generate_username("misa.amane", suffix_length=8)
+        self.assertTrue(first.startswith("misa.amane"))
+        self.assertTrue(second.startswith("misa.amane"))
+        self.assertEqual(len(first), len("misa.amane") + 8)
+        self.assertRegex(first[len("misa.amane"):], r"^[a-z0-9]{8}$")
+        self.assertNotEqual(first, second)
+
+    def test_blank_prompt_falls_back_to_default(self):
+        with patch("builtins.input", return_value=""):
+            self.assertEqual(app.prompt_username_base(), "")
+
     def test_legacy_dependency_and_secret_patterns_are_gone(self):
         source = Path(__file__).with_name("app.py").read_text(encoding="utf-8")
         requirements = Path(__file__).with_name("requirements.txt").read_text(encoding="utf-8")
