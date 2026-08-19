@@ -1,54 +1,38 @@
 # from selenium import webdriver
-from seleniumwire import webdriver
+from selenium import webdriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options as ChromeOptions
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.proxy import Proxy, ProxyType
-from selenium.common.exceptions import *
-from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.firefox import GeckoDriverManager
+from selenium.common.exceptions import WebDriverException
 import time
 import random
 import datetime
 import requests
 import csv
 import string
-from fp.fp import FreeProxy
-from fake_useragent import UserAgent
+import os
+import shutil
+from pathlib import Path
 
-# Option for Auto User info generation
-AUTO_GENERATE_UERINFO = True
-AUTO_GENERATE_NUMBER = 10
+BASE_DIR = Path(__file__).resolve().parent
 
-# Include Refer URL
-INCLUDE_REFER_URL = False
-
-# Time to wait for SELECTORS.(second)
-WAIT = 4
-
-# Max Retry to get phone number from sms-activate.org
-REQUEST_MAX_TRY = 10
-
-# Your SMS-Activate API key
-API_KEY = "8e49fdB90d0209c085dd1df56cedf00e" #9b6b9eb50d0A30---------d9b7495b
-COUNTRY_CODE = "175" #i.e, Austrailian country code, See country table in sms-activate. I often use Australian phone number and it works almost always.
-
+# Runtime settings can be overridden with environment variables. Secrets must
+# never be committed to the repository.
+AUTO_GENERATE_USERINFO = os.getenv("AUTO_GENERATE_USERINFO", "1").lower() in {"1", "true", "yes"}
+AUTO_GENERATE_NUMBER = int(os.getenv("AUTO_GENERATE_NUMBER", "10"))
+WAIT = float(os.getenv("WAIT_SECONDS", "4"))
+REQUEST_MAX_TRY = int(os.getenv("REQUEST_MAX_TRY", "10"))
+USER_CSV = Path(os.getenv("USER_CSV", str(BASE_DIR / "user.csv")))
+SMS_ACTIVATE_API_KEY = os.getenv("SMS_ACTIVATE_API_KEY", "").strip()
+SMS_ACTIVATE_COUNTRY = os.getenv("SMS_ACTIVATE_COUNTRY", "175").strip()
 sms_activate_url = "https://sms-activate.org/stubs/handler_api.php"
-phone_request_params = {
-    "api_key":API_KEY,
-    "action":"getNumber",
-    "country":COUNTRY_CODE, 
-    "service":"go",
-}
 
-status_param = {
-    "api_key":API_KEY,
-    "action":"getStatus"
-}
+# Referer randomization, proxy rotation, and stealth settings were removed.
+# They are unreliable on Termux and can be used to evade anti-abuse controls.
+INCLUDE_REFER_URL = False
 
 SELECTORS = {
     "create_account":[
@@ -57,7 +41,7 @@ SELECTORS = {
         ],
     'for_my_personal_use':[
         "//span[@class='VfPpkd-StrnGf-rymPhb-b9t22c']",
-        ], 
+        ],
     "first_name":"//*[@name='firstName']",
     "last_name":"//*[@name='lastName']",
     "username":"//*[@name='Username']",
@@ -78,17 +62,7 @@ SELECTORS = {
     "username_warning":'//*[@class="jibhHc"]',
     "username_select":'//*[@aria-posinset="3"]'
 }
-# https://webflow.com/made-in-webflow/fast , I tried to find the fast websites and you can add more.
-SITE_LIST = [
-    'https://google.com',
-    'https://wizardrytechnique.webflow.io/',
-    'https://www.rachelbavaresco.com/',
-    'https://lightning-bolt.webflow.io/'
-]
-proxy_list = None
-with open("./data/Proxy_DB.csv", 'r') as proxy_list_file:
-    proxy_list = csv.reader(proxy_list_file)
-    proxy_list = list(proxy_list)
+# Repository data is resolved relative to BASE_DIR inside main().
 
 def generatePassword():
     chars = string.ascii_uppercase + string.ascii_lowercase + string.digits + string.punctuation
@@ -173,135 +147,99 @@ def getRandomeUserAgent():
     return agent
 
 # This method is for chrome driver initialization. You can customize if you want.
+def _is_termux():
+    return bool(os.getenv("TERMUX_VERSION")) or "com.termux" in os.getenv("PREFIX", "")
+
+
+def _find_chromedriver():
+    configured = os.getenv("CHROMEDRIVER", "").strip()
+    candidate = configured or shutil.which("chromedriver")
+    if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+        return candidate
+    return None
+
+
 def setDriver():
-    seleniumwire_options = {}
-    seleniumwire_options['exclude_hosts'] = ['google-analytics.com']
+    """Start Chromium using a driver supplied by the user or on PATH.
 
-    # Secure Connection
-    # seleniumwire_options['verify_ssl'] = True
-
-    # Set Proxy
-    # proxy = getProxy() # Rotating proxy
-    SOCKS_PROXY = "socks5://14ab1e7131541:39d813de77@198.143.22.234:12324" # Fixed proxy, i.e socks5://14ab1e7131541:39d813de77@176.103.246.143:12324
-    # SOCKS_PROXY = "socks5://user:pass@ip:port" # Fixed proxy, i.e socks5://14ab1e7131541:39d813de77@176.103.246.143:12324
-    # SOCKS_PROXY = 'socks5://158.69.225.110:59166'
-
-    # https://pypi.org/project/free-proxy/
-    try:
-        random_proxy = FreeProxy(timeout=1).get()
-        print('################ Use FreeProxy library to get HTTP proxy ################')
-    except:
-        print('################ Use Proxy DB to get HTTP proxy ################')
-        random_proxy = "http://"+ random.choice(proxy_list)[0]
-
-    HTTP_PROXY = random_proxy
-    print(HTTP_PROXY)
-    # HTTPS_PROXY = "https://user:pass@ip:port"
-
-    # Proxy
-    proxy_options = {}
-    proxy_options['no_proxy']= 'localhost,127.0.0.1'
-
-    ## Http proxy
-    proxy_options['http'] = HTTP_PROXY
-
-    ## Https proxy
-    # proxy_options['https'] = HTTPS_PROXY
-
-    ## Socks proxy
-    proxy_options['http'] = SOCKS_PROXY
-    proxy_options['https'] = SOCKS_PROXY
-
-    seleniumwire_options['proxy'] = proxy_options
-    # prox = Proxy()
-    # prox.proxy_type = ProxyType.MANUAL
-    # prox.socks_proxy = SOCKS_PROXY
-    # prox.socks_version = 5
-    # prox.http_proxy = HTTP_PROXY
-    # print(SOCKS_PROXY)
-    # prox.http_proxy = SOCKS_PROXY
-    # prox.https_proxy = SOCKS_PROXY
-
-    # capabilities = webdriver.DesiredCapabilities.CHROME
-    # prox.add_to_capabilities(capabilities)
-
-    # Set User Agent
-    # user_agent = getRandomeUserAgent() # Random user agent
-    # user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36" # Fixed agent
-    # Please refer to this https://github.com/fake-useragent/fake-useragent
-    user_agent = UserAgent(fallback="Mozilla/5.0 (Macintosh; Intel Mac OS X10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36").random
-    print(user_agent)
-    # Set Browser Option
+    webdriver-manager downloads desktop binaries and cannot reliably resolve
+    the Android/ARM64 combination used by Termux, so it is deliberately not
+    used here.
+    """
     options = ChromeOptions()
-    # options = FirefoxOptions()
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1280,900")
 
-    prefs = {"profile.password_manager_enabled": False, "credentials_enable_service": False, "useAutomationExtension": False}
-    options.add_experimental_option("prefs", prefs)
-    options.add_experimental_option("useAutomationExtension", False)
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--no-sandbox')
-    options.add_argument("disable-popup-blocking")
-    options.add_argument("disable-notifications")
-    options.add_argument("disable-popup-blocking")
-    options.add_argument('--ignore-ssl-errors=yes')
-    options.add_argument('--ignore-certificate-errors')
+    chrome_binary = os.getenv("CHROME_BINARY", "").strip() or shutil.which("chromium")
+    if chrome_binary:
+        options.binary_location = chrome_binary
 
-    # options.add_argument('--headless') # UI
-    # options.add_argument("--incognito")
-    # options.add_argument(r"--user-data-dir=C:\\Users\\Username\\AppData\\Local\\Google\\Chrome\\User Data")
-    # options.add_argument(r'--profile-directory=ProfileName')
-    options.add_argument(f"user-agent={user_agent}")
+    # Termux normally has no DISPLAY. Its compatible mode is legacy
+    # --headless; callers can set HEADLESS=0 under a configured X11 display.
+    headless = os.getenv("HEADLESS", "").lower() in {"1", "true", "yes"}
+    if not headless and _is_termux() and not os.getenv("DISPLAY"):
+        headless = True
+    if headless:
+        options.add_argument("--headless")
 
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options = options, seleniumwire_options=seleniumwire_options)
-    #driver = webdriver.Firefox(service=Service(GeckoDriverManager().install()), options = options, seleniumwire_options=seleniumwire_options)
-    
-    return driver
+    driver_path = _find_chromedriver()
+    if driver_path:
+        return webdriver.Chrome(service=Service(driver_path), options=options)
+
+    if _is_termux():
+        raise RuntimeError(
+            "No executable chromedriver was found. On Termux, install an "
+            "Android/ARM64-compatible driver and set CHROMEDRIVER=/path/to/chromedriver "
+            "or put it on PATH; webdriver-manager cannot supply this binary."
+        )
+
+    # On regular desktop Linux, Selenium Manager may resolve a matching driver.
+    return webdriver.Chrome(options=options)
 
 def main():
     user_number = 0
     i = 0
 
-    if(AUTO_GENERATE_UERINFO):
+    if AUTO_GENERATE_USERINFO:
         user_number = AUTO_GENERATE_NUMBER
         print('################ Open First_Name_DB.csv ################')
         try:
-            first_name_file = open("./data/First_Name_DB.csv", 'r')
-            first_names = csv.reader(first_name_file)
-            first_names = list(first_names)
+            with open(BASE_DIR / "data" / "First_Name_DB.csv", newline="", encoding="utf-8") as first_name_file:
+                first_names = list(csv.reader(first_name_file))
         except:
             print('################ Please check if First_Name_DB.csv exists ################')
             quit()
 
         print('################ Open Last_Name_DB.csv ################')
         try:
-            last_name_file = open("./data/Last_Name_DB.csv", 'r')
-            last_names = csv.reader(last_name_file)
-            last_names = list(last_names)
+            with open(BASE_DIR / "data" / "Last_Name_DB.csv", newline="", encoding="utf-8") as last_name_file:
+                last_names = list(csv.reader(last_name_file))
         except:
             print('################ Please check if Last_Name_DB.csv exists ################')
             quit()
     else:
         print('################ Open User.csv ################')
         try:
-            user_info_file = open("User.csv", 'r')
-            user_infos = csv.reader(user_info_file)
-            user_infos = list(user_infos)
+            with open(USER_CSV, newline="", encoding="utf-8") as user_info_file:
+                user_infos = list(csv.reader(user_info_file))
             user_number = len(user_infos)
         except:
             print('################ Please check if User.csv exists ################')
             quit()
 
     while True:
+        driver = None
         try:
-            # Check if the count reach to the maxium users.
-            
-            if i == user_number:
+            # Check if the count reaches the configured maximum users.
+
+            if i >= user_number:
                 break
 
             i = i + 1
             print('################ User:', i,' ################')
-            if AUTO_GENERATE_UERINFO:
+            if AUTO_GENERATE_USERINFO:
                 first_name = random.choice(first_names)[0]
                 last_name = random.choice(last_names)[0]
                 password = generatePassword()
@@ -326,10 +264,8 @@ def main():
             print('################ Initialize Chrome Driver ################')
             driver = setDriver()
 
-            print('################ Random Refer website to bypass Google Bot Detection ################')
             if INCLUDE_REFER_URL:
-                random_url = random.choice(SITE_LIST)
-                driver.get(random_url)
+                raise RuntimeError("Referer randomization is disabled for safe and predictable operation.")
 
             # 4 ways to go to account creation page.
             random_int = random.randint(1,4)
@@ -344,7 +280,7 @@ def main():
                 driver.get("https://accounts.google.com")
 
                 time.sleep(WAIT)
-                
+
                 print('################ Click "Create account" ################')
                 for selector in SELECTORS["create_account"]:
                     try:
@@ -363,7 +299,7 @@ def main():
             elif random_int == 3:
                 driver.get('https://accounts.google.com/signup/v2/webcreateaccount?flowName=GlifWebSignIn&flowEntry=SignUp')
                 time.sleep(WAIT)
-            
+
             elif random_int == 4:
                 driver.get('https://support.google.com/mail/answer/56256?hl=en')
                 WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH,'//*[@id="hcfe-content"]/section/div/div[1]/article/section/div/div[1]/div/p[1]/a'))).click()
@@ -405,9 +341,9 @@ def main():
 
                 print('################ 2st step of Creation Wizard. ################')
                 print('################ Birthday & Gender ################')
-                # Date   
+                # Date
                 WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['acc_day']))).send_keys(birthday.split('/')[1])
-                
+
                 # Month
                 select_acc_month = WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['acc_month'])))
 
@@ -518,26 +454,37 @@ def main():
             count = 0
             if without_verification == False:
                 print('################ Get Phone Number from SMS_Activate ################')
-                while(count < REQUEST_MAX_TRY):
-                    res = requests.get(url=sms_activate_url,params = phone_request_params)
+                if not SMS_ACTIVATE_API_KEY:
+                    raise RuntimeError(
+                        "SMS verification is required, but SMS_ACTIVATE_API_KEY is not set. "
+                        "Export your own key before running this step."
+                    )
+                phone_request_params = {
+                    "api_key": SMS_ACTIVATE_API_KEY,
+                    "action": "getNumber",
+                    "country": SMS_ACTIVATE_COUNTRY,
+                    "service": "go",
+                }
+                while count < REQUEST_MAX_TRY:
+                    res = requests.get(url=sms_activate_url, params=phone_request_params, timeout=30)
+                    res.raise_for_status()
                     data = res.text
                     print(data)
                     if "ACCESS_NUMBER" in data:
                         activationId = data.split(':')[1]
                         number = data.split(':')[2]
-                        
+
                         number = '+'+ number
                         print(number)
                         break
                     if "NO_BALANCE" in data:
-                        print("Check your Balance in sms-activate.")
-                        exit()
+                        raise RuntimeError("SMS provider balance is insufficient.")
                     count = count+1
                     time.sleep(WAIT)
                 if number == '':
                     print("################ Cannot get phone number: ", REQUEST_MAX_TRY, " times retrial. ################")
-                    raise Exception("Go to next account.")
-                
+                    raise RuntimeError("Go to next account.")
+
                 phone_number_input.send_keys(number)
 
                 #click next button
@@ -554,11 +501,15 @@ def main():
 
                 count_status = 0
                 code = ''
-                while(True):
-                # while(count_status < REQUEST_MAX_TRY):
-                    status_param['id'] = activationId
+                while count_status < REQUEST_MAX_TRY:
+                    status_param = {
+                        "api_key": SMS_ACTIVATE_API_KEY,
+                        "action": "getStatus",
+                        "id": activationId,
+                    }
                     print(status_param)
-                    res_code = requests.get(url=sms_activate_url,params = status_param)
+                    res_code = requests.get(url=sms_activate_url, params=status_param, timeout=30)
+                    res_code.raise_for_status()
                     data_code = res_code.text
                     print(data_code)
                     if "STATUS_OK" in data_code:
@@ -570,9 +521,9 @@ def main():
 
                 if code == '':
                     print('Cannot receive code from sms_activate: ',REQUEST_MAX_TRY, " times retrial")
-                    raise Exception("Go to next account.")
+                    raise RuntimeError("Go to next account.")
 
-                print('################ Verify Phone Code ################')  
+                print('################ Verify Phone Code ################')
                 WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['code']))).send_keys(code)
 
                 #click next button
@@ -589,9 +540,9 @@ def main():
             # WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['acc_phone_number']))).clear()
 
             # print('################ Account Birthday ################')
-            # # Date   
+            # # Date
             # WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['acc_day']))).send_keys(birthday.split('/')[1])
-            
+
             # # Month
             # select_acc_month = WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.XPATH, SELECTORS['acc_month'])))
 
@@ -618,7 +569,7 @@ def main():
             time.sleep(WAIT)
 
             # Scroll to click "I agree"
-            driver.execute_script("window.scrollTo(0, 800)") 
+            driver.execute_script("window.scrollTo(0, 800)")
             time.sleep(WAIT)
             for selector in SELECTORS['next']:
                 try:
@@ -628,15 +579,15 @@ def main():
                     pass
             time.sleep(WAIT*3)
             print('################ Save to Created.txt ################')
-            f = open('Created.txt', 'a')
-            f.write(user_name + "\t" + password + "\t" +birthday + "\t"+ number + "\n")
-            f.close()
+            with open(BASE_DIR / "Created.txt", "a", encoding="utf-8") as created_file:
+                created_file.write(user_name + "\t" + password + "\t" + birthday + "\t" + number + "\n")
 
             driver.quit()
+            driver = None
         except Exception as e:
             print(e)
             if driver is not None:
                 driver.quit()
 
-    user_info_file.close()
-main()
+if __name__ == "__main__":
+    main()

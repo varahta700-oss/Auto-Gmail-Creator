@@ -1,7 +1,3 @@
-fake_useragent
-fp
-free_proxy
-requests
-selenium
-selenium_wire
-webdriver_manager
+# Selenium Manager is used only as a desktop fallback; Termux uses chromedriver on PATH.
+selenium>=4.18,<5
+requests>=2.31,<3
